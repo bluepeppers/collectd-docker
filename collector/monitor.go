@@ -3,24 +3,16 @@ package collector
 import (
 	"errors"
 	"strings"
+	"regexp"
 
 	"github.com/fsouza/go-dockerclient"
 )
 
-const appLabel = "collectd_docker_app"
-const taskLabel = "collectd_docker_task"
-const taskLocationLabel = "collectd_docker_task_label"
-
-const appEnvPrefix = "COLLECTD_DOCKER_APP="
-const taskEnvPrefix = "COLLECTD_DOCKER_TASK="
-const taskEnvLocationPrefix = "COLLECTD_DOCKER_TASK_ENV="
-const taskEnvLocationTrimPrefix = "COLLECTD_DOCKER_TASK_ENV_TRIM_PREFIX="
-
-const defaultTask = "default"
-
 // ErrNoNeedToMonitor is used to skip containers
 // that shouldn't be monitored by collectd
 var ErrNoNeedToMonitor = errors.New("container is not supposed to be monitored")
+
+var imageNameRegex = regexp.MustCompile(`.*\/([^\/]*):.*`)
 
 // MonitorDockerClient represents restricted interface for docker client
 // that is used in monitor, docker.Client is a subset of this interface
@@ -51,7 +43,7 @@ func NewMonitor(c MonitorDockerClient, id string, interval int) (*Monitor, error
 		return nil, ErrNoNeedToMonitor
 	}
 
-	task := sanitizeForGraphite(extractTask(container))
+	task := sanitizeForGraphite(container.ID[:8])
 
 	return &Monitor{
 		client:   c,
@@ -90,42 +82,29 @@ func (m *Monitor) handle(ch chan<- Stats) error {
 	})
 }
 
-func extractApp(c *docker.Container) string {
-	return extractMetadata(c, appLabel, appEnvPrefix, "")
+func extractApp(c *docker.Container) (app string) {
+	app = extractEnv(c, "CHRONOS_JOB_NAME")
+	if app != "" {
+		return
+	}
+	app = extractEnv(c, "MARATHON_APP_ID")
+	if app != "" {
+		app = strings.TrimPrefix(app, "/")
+		return
+	}
+
+	matches := imageNameRegex.FindStringSubmatch(c.Config.Image)
+	if matches == nil || len(matches) < 1 {
+		app = ""
+		return
+	}
+	app = matches[0]
+
+	return
 }
 
-func extractTask(c *docker.Container) string {
-	task := defaultTask
-
-	location := extractMetadata(c, taskLocationLabel, taskEnvLocationPrefix, "")
-	if location != "" {
-		task = extractMetadata(c, location, location+"=", defaultTask)
-	} else {
-		task = extractMetadata(c, taskLabel, taskEnvPrefix, defaultTask)
-	}
-
-	prefix := extractEnv(c, taskEnvLocationTrimPrefix)
-	if prefix != "" {
-		return strings.TrimPrefix(task, prefix)
-	}
-
-	return task
-}
-
-func extractMetadata(c *docker.Container, label, envPrefix, missing string) string {
-	if app, ok := c.Config.Labels[label]; ok {
-		return app
-	}
-
-	env := extractEnv(c, envPrefix)
-	if env != "" {
-		return env
-	}
-
-	return missing
-}
-
-func extractEnv(c *docker.Container, envPrefix string) string {
+func extractEnv(c *docker.Container, envVar string) string {
+	envPrefix := envVar + "="
 	for _, e := range c.Config.Env {
 		if strings.HasPrefix(e, envPrefix) {
 			return strings.TrimPrefix(e, envPrefix)
@@ -136,5 +115,5 @@ func extractEnv(c *docker.Container, envPrefix string) string {
 }
 
 func sanitizeForGraphite(s string) string {
-	return strings.Replace(s, ".", "_", -1)
+	return strings.Replace(strings.Replace(s, ".", "_", -1), "/", "_", -1)
 }
