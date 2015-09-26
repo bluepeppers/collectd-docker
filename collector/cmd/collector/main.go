@@ -5,7 +5,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/bluepeppers/collectd-docker/collector"
+	collector "../.."
 	"github.com/fsouza/go-dockerclient"
 	"path"
 )
