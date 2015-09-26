@@ -5,7 +5,7 @@ import (
 	"io"
 )
 
-const collectdIntGaugeTemplate = "PUTVAL %s/docker_stats-%s.%s/gauge-%s %d:%d\n"
+const collectdIntGaugeTemplate = "PUTVAL %s/docker_stats/%s.%s/gauge-%s %d:%d\n"
 
 // CollectdWriter is responsible for writing data
 // to wrapped writer in collectd exec plugin format
